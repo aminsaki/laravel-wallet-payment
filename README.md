@@ -1,59 +1,278 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# TechnoPay Wallet Payment Challenge
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+This project implements a **secure, concurrent-safe wallet-based invoice payment flow** using **Laravel 11**, with explicit confirmation (two-step verification), a global daily spending limit, and full transactional safety.
 
-## About Laravel
+The focus is on **correctness under concurrency**, **clear boundaries**, and **extensibility** for future integrations (two-step verification, notifications, external payment providers, etc).
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 🧱 Tech Stack
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- PHP 8.2+
+- Laravel 11
+- MySQL (or any relational DB supported by Laravel)
+- No external packages
+- PHPUnit for unit & feature tests
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## 🏗 Project Structure
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+```txt
+app
+ ├── Domain
+ │   ├── Invoice
+ │   │   └── Models
+ │   │       └── Invoice.php
+ │   ├── Wallet
+ │   │   └── Models
+ │   │       ├── Wallet.php
+ │   │       └── WalletTransaction.php
+ │   └── Spending
+ │       └── Models
+ │           └── DailySpendingStat.php
+ │
+ ├── Services
+ │   ├── Payments
+ │   │   ├── InvoicePaymentService.php
+ │   │   └── InvoicePaymentResult.php
+ │   ├── Verification
+ │   │   ├── ConfirmationServiceInterface.php
+ │   │   └── MockConfirmationService.php
+ │   └── Notifications
+ │       ├── NotificationServiceInterface.php
+ │       └── MockNotificationService.php
+ │
+ ├── Http
+ │   ├── Controllers
+ │   │   └── InvoicePaymentController.php
+ │   └── Requests
+ │       └── PayInvoiceRequest.php
+ │
+ └── Providers
+     └── AppServiceProvider.php   # service bindings
+```
 
-## Laravel Sponsors
+Additional files:
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```txt
+config/payments.php              # global daily limit config
+routes/api.php                   # payment endpoint
+database/migrations              # invoices, wallets, transactions, daily stats
+database/factories               # Invoice, Wallet, DailySpendingStat factories
+tests/Unit                       # InvoicePaymentService tests
+tests/Feature                    # API endpoint tests
+```
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## 🧩 Design & Patterns
 
-## Contributing
+The system uses a simple and clean layered architecture:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Layers
 
-## Code of Conduct
+- **Domain layer**
+  - Eloquent models representing system entities.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- **Application / Service layer**
+  - `InvoicePaymentService` encapsulates all business logic.
+  - `InvoicePaymentResult` is used to return structured result data.
 
-## Security Vulnerabilities
+- **HTTP / Interface layer**
+  - Handles requests, validation, responses.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+### Key Design Patterns
 
-## License
+- **Service Layer**
+- **Dependency Inversion (SOLID)**
+  - Interfaces: `ConfirmationServiceInterface`, `NotificationServiceInterface`
+  - Implementations: mocks (can be replaced later)
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+- **Transaction Script**
+  - Complete payment logic inside a single database transaction.
+  - Includes row-level locking via `lockForUpdate()`.
+
+- **DTO Pattern**
+  - Clean data transfer using `InvoicePaymentResult`.
+
+---
+
+## 🔐 Business Rules
+
+### ✔ Invoice Payment Rules
+- Must be `pending`
+- Must belong to the current user
+- Must not be expired
+- Must not be already paid
+
+### ✔ Wallet Rules
+- Must exist
+- Must be `active`
+- Must have *sufficient balance*
+
+### ✔ User Rules
+- Must not be blocked (`users.is_blocked = false`)
+
+### ✔ Two-Step Verification
+- Implemented using an interface + mock service
+- Valid confirmation code (mock): `123456`
+
+### ✔ Daily Spending Limit
+- Global per-day spending limit stored in `daily_spending_stats`
+- Row for today's date is locked to ensure concurrency safety
+- Rejects payment if:
+  ```
+  total_spent + invoice.amount > daily_limit
+  ```
+
+### ✔ Accurate Timestamps
+- `paid_at` recorded upon successful payment
+
+### ✔ Refund on Failure
+- The entire payment runs inside `DB::transaction()`
+- Any failure → full rollback (automatic refund)
+
+---
+
+## 🔀 Concurrency & Safety
+
+- `DB::transaction()` ensures atomic operations
+- `lockForUpdate()` on:
+  - Invoice row
+  - Wallet row
+  - Today's daily stats row
+
+Guarantees:
+- No double spending
+- No two payments on the same invoice
+- Daily spending limit integrity
+
+---
+
+## 🌐 API Endpoint
+
+### POST `/api/invoices/{invoice}/pay`
+
+#### Request Body:
+
+```json
+{
+  "confirmation_code": "123456"
+}
+```
+
+#### Success Response (200):
+
+```json
+{
+  "success": true,
+  "data": {
+    "invoice": {
+      "id": 1,
+      "status": "paid",
+      "amount": "1000.00",
+      "paid_at": "2025-01-01T10:00:00Z"
+    },
+    "wallet": {
+      "balance": "4000.00"
+    }
+  }
+}
+```
+
+#### Failure Response (422):
+
+```json
+{
+  "success": false,
+  "error": "Invalid confirmation code."
+}
+```
+
+Possible errors:
+- Invoice expired
+- Insufficient balance
+- Wallet inactive
+- User blocked
+- Daily limit reached
+
+---
+
+## 🧪 Testing
+
+Run all tests:
+
+```bash
+php artisan test
+```
+
+### Unit Tests
+Located at:
+```
+tests/Unit/InvoicePaymentServiceTest.php
+```
+
+Covers:
+- Successful payment
+- Invalid confirmation code
+- Expired invoice
+- Insufficient balance
+- Daily limit exceeded
+- Re-paying an already paid invoice
+
+### Feature Tests
+Located at:
+```
+tests/Feature/PayInvoiceTest.php
+```
+
+---
+
+## ⚙️ Setup Instructions
+
+```bash
+git clone <repo-url>
+cd <project-folder>
+
+cp .env.example .env
+composer install
+php artisan key:generate
+
+# Update DB credentials in .env
+
+php artisan migrate
+php artisan test
+php artisan serve
+```
+
+App available at:
+```
+http://localhost:8000
+```
+
+---
+
+## 🐳 Optional: Docker
+
+If Docker support is included:
+
+### Start services:
+
+```bash
+docker compose up -d
+```
+
+### Run migrations:
+
+```bash
+docker compose exec app php artisan migrate
+```
+
+### Run tests:
+
+```bash
+docker compose exec app php artisan test
+```
+
+---
